@@ -660,6 +660,7 @@ def convert_to_viz_tree(tree, sen):
     for i in range(len(sen)):
         seg_dict[(i, i+1)] = Node(word=sen[i])
 
+    new_node = None
     for left, right, label in tree:
         new_node = Node(tag=label)
         new_left = left

@@ -716,33 +716,34 @@ def evaluate(model, loader):
 def predict(model, loader):
     model.eval()
 
-    preds = {'trees': [], 'probs': []}
-    count = 0
+    ground_truth = []
+    predictions = []
     for words, *feats, trees, charts in loader:
+        # mask out the lower left triangle
         word_mask = words.ne(args.pad_index)[:, 1:]
         mask = word_mask if len(words.shape) < 3 else word_mask.any(-1)
         mask = (mask.unsqueeze(1) & mask.unsqueeze(2)).triu_(1)
-        # lens = mask[:, 0].sum(-1)
-        s_feat = model(words, feats)
 
-        # s_span = model.crf(s_feat, mask, require_marginals=True)
-        # chart_preds = model.decode(s_span, mask)
-        s_feat = model.crf(s_feat, mask, require_marginals=True)
+        s_feat = model(words, feats)
         chart_preds = model.decode(s_feat, mask)
 
-        preds['trees'].extend([Tree.build(tree, [(i, j, CHART.vocab[label]) for i, j, label in chart])
-                                for tree, chart in zip(trees, chart_preds)])
-        # if args.prob:
-        #     preds['probs'].extend([prob[:i-1, 1:i].cpu() for i, prob in zip(lens, s_span)])
-        if args.draw_pred and count % 50 == 0: ### draw trees here
-            filter_delete = lambda x: [it for it in x if it not in args.delete]
-            trees_fact = [Tree.factorize(tree, args.delete, args.equal) for tree in preds['trees']]
-            leaves = [filter_delete(tree.leaves()) for tree in trees]
-            t = convert_to_viz_tree(tree=trees_fact[0], sen=leaves[0])
+        preds = [Tree.build(tree, [(i, j, CHART.vocab[label]) for i, j, label in chart])
+                 for tree, chart in zip(trees, chart_preds)]
 
-            draw_tree(t, res_path="./prediction" + str(count))
+        ground_truth.append(trees[0]._pformat_flat("", "()", False))
+        predictions.append(preds[0]._pformat_flat("", "()", False))
 
-    return preds
+    # number of trees to be saved
+    print_tree_count = 5
+    for i, tree in enumerate(ground_truth):
+        tree = from_string(tree)
+        if tree.sen_len() <=10:
+            #save trees as png files
+            draw_tree(tree, res_path =f"./ground_truth_{i}.png")
+            draw_tree(from_string(predictions[i]), res_path=f"./pred_{i}.png")
+            print_tree_count-=1
+        if print_tree_count <=0:
+            break
 
 
 if __name__ == "__main__":

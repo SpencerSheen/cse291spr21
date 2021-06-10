@@ -682,6 +682,7 @@ def evaluate(model, loader):
 
     total_loss, metric = 0, SpanMetric()
 
+    count = 0
     for words, *feats, trees, charts in loader:
         # mask out the lower left triangle
         word_mask = words.ne(args.pad_index)[:, 1:]
@@ -697,13 +698,13 @@ def evaluate(model, loader):
                     for tree, chart in zip(trees, chart_preds)]
         total_loss += loss.item()
 
-        if args.draw_pred: ### draw trees here
+        if args.draw_pred and count % 100 == 0: ### draw trees here
             filter_delete = lambda x: [it for it in x if it not in args.delete]
             trees_fact = [Tree.factorize(tree, args.delete, args.equal) for tree in preds]
             leaves = [filter_delete(tree.leaves()) for tree in trees]
             t = convert_to_viz_tree(tree=trees_fact[0], sen=leaves[0])
 
-            draw_tree(t, res_path="./prediction")
+            draw_tree(t, res_path="./prediction" + str(count))
 
         metric([Tree.factorize(tree, args.delete, args.equal) for tree in preds],
                 [Tree.factorize(tree, args.delete, args.equal) for tree in trees])
@@ -716,6 +717,7 @@ def predict(model, loader):
     model.eval()
 
     preds = {'trees': [], 'probs': []}
+    count = 0
     for words, *feats, trees, charts in loader:
         word_mask = words.ne(args.pad_index)[:, 1:]
         mask = word_mask if len(words.shape) < 3 else word_mask.any(-1)
@@ -732,13 +734,13 @@ def predict(model, loader):
                                 for tree, chart in zip(trees, chart_preds)])
         # if args.prob:
         #     preds['probs'].extend([prob[:i-1, 1:i].cpu() for i, prob in zip(lens, s_span)])
-        if args.draw_pred: ### draw trees here
+        if args.draw_pred and count % 50 == 0: ### draw trees here
             filter_delete = lambda x: [it for it in x if it not in args.delete]
             trees_fact = [Tree.factorize(tree, args.delete, args.equal) for tree in preds['trees']]
             leaves = [filter_delete(tree.leaves()) for tree in trees]
             t = convert_to_viz_tree(tree=trees_fact[0], sen=leaves[0])
 
-            draw_tree(t, res_path="./prediction")
+            draw_tree(t, res_path="./prediction" + str(count))
 
     return preds
 

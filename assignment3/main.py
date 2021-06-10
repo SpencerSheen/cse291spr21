@@ -9,9 +9,10 @@ from torch.optim import Adam
 from data import Dataset, Tree, Field, RawField, ChartField
 import argparse
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
+import sys
 
 class Metric(object):
-  
+
     def __lt__(self, other):
         return self.score < other
 
@@ -30,7 +31,7 @@ class Metric(object):
 
 
 class SpanMetric(Metric):
-  
+
     def __init__(self, eps=1e-12):
         super().__init__()
 
@@ -146,6 +147,7 @@ def stripe(x, n, w, offset=(0, 0), dim=1):
                         storage_offset=(offset[0]*seq_len+offset[1])*numel)
 
 def cky(scores, mask):
+    # print("cky")
     lens = mask[:, 0].sum(-1)
     batch_size, seq_len, seq_len, n_labels = scores.shape
     scores = scores.permute(1, 2, 3, 0)
@@ -211,7 +213,7 @@ class CRFConstituency(nn.Module):
         # marginal probs are used for decoding, and can be computed by
         # combining the inside algorithm and autograd mechanism
         # instead of the entire inside-outside process
-        
+
         probs = scores
         if require_marginals:
             probs, = autograd.grad(logZ, scores, retain_graph=scores.requires_grad)
@@ -229,6 +231,7 @@ class CRFConstituency(nn.Module):
 
 
     def inside(self, scores, mask):
+        # print("inside")
         batch_size, seq_len, seq_len, n_labels = scores.shape
         # [seq_len, seq_len, n_labels, batch_size]
         scores = scores.permute(1, 2, 3, 0)
@@ -238,7 +241,36 @@ class CRFConstituency(nn.Module):
         # working in the log space, initial s with log(0) == -inf
         s = torch.full_like(scores[:, :, 0], float('-inf'))
 
+        # print(s.shape)
+        #
+        for i in range(0, seq_len):
+            s[i][i][:] = 0
+
+        # print(scores[0][0])
+        # print(torch.logsumexp(scores[0][0], 0)[0])
+
+        # s = scores.new_zeros(seq_len, seq_len, batch_size)
+        # p_s = scores.new_zeros(seq_len, seq_len, batch_size).long()
+        # p_l = scores.new_zeros(seq_len, seq_len, batch_size).long()
+
+        # print(s)
+
+        # TEST LOGEXP SCORE VALUES
+        # print("max 0")
+        # print(scores.diagonal(1).max(0))
+        # print("default")
+        # print(scores.diagonal(1))
+        # print("flipped")
+        # print(scores.diagonal(1).permute(2, 0, 1))
+        # print(scores.diagonal(1).permute(2, 0, 1).shape)
+        # print("logsumexp")
+        # print(torch.unsqueeze(torch.squeeze(torch.logsumexp(scores.diagonal(1).permute(2, 0, 1), 1)), 0))
+        #
+        # print(scores[0][1])
+
+
         for d in range(2, seq_len + 1): # d = 2, 3, ..., seq_len
+            # print("iter: " + str(d))
             # define the offset variable for convenience
             offset = d - 1
             # n denotes the number of spans to iterate,
@@ -248,11 +280,110 @@ class CRFConstituency(nn.Module):
             # [batch_size, n]
             diag_mask = mask.diagonal(offset)
 
-            ##### TODO   
+            # logsumexp here
+            # s_label_col = torch.logsumexp(scores.diagonal(offset).permute(2, 0, 1), 1)
+            # PART 1
+            # print("logsumexp scores: ")
+            # print(scores.shape)
+            # print(s.shape)
+
+            # print(scores.diagonal(offset))
+            # print(scores.diagonal(offset).shape)
+            # print(scores.diagonal(offset).permute(2, 0, 1))
+            s_label = torch.squeeze(torch.logsumexp(scores.diagonal(offset).permute(2, 0, 1), 1))
+
+            # print(s_label)
+            # print(len(s_label.shape))
+            # print(s_label.shape)
+            # if len(s_label) > 1:
+            if d == seq_len:
+                s_label = torch.logsumexp(s_label,0)
+            else:
+                s_label = torch.squeeze(torch.logsumexp(s_label,1))
+
+            s_label = torch.unsqueeze(s_label, 0)
+            # print("s_label")
+            # print(s_label)
+            # print(s_label.shape)
+
+
+            # p_l.diagonal(offset).copy_(p_label)
+
+            if d == 2:
+                s.diagonal(offset).copy_(s_label)
+                continue
+
+            #'''
+            # [n, offset, batch_size]
+            # PART 2
+            # print("s_span")
+            s_span = stripe(s, n, offset-1, (0, 1)) + stripe(s, n, offset-1, (1, offset), 0)
+            # [batch_size, n, offset]
+            # print(s_span)
+            # print(s_span.shape)
+            # s_span = s_span.permute(2, 0, 1)
+
+
+            # test to see if score logexp adds up, might need to fix last case
+            # s_span = torch.unsqueeze(torch.squeeze(s_span), 0)
+            # print(s_span)
+            # print(s_span.shape)
+
+            if d == seq_len:
+                s_label = torch.unsqueeze(s_label, 0)
+
+            # print(s_label)
+            # print(s_label.shape)
+            # PART 3
+            # print("logsumexp score + s")
+            # print(s_span[0]+s_label[0][:,None])
+
+            # add calculated logexp score values to existing s
+            # s_span = s_span+s_label[0]
+            for i in range(0, len(s_label[0])):
+                s_span[i] = s_span[i] + s_label[0][i]
+
+            # print(s_span.shape)
+            # if d == seq_len:
+            # s_span = torch.unsqueeze(s_span, 0)
+
+            # print(s_span)
+            # print(s_span.shape)
+
+            # PART 4
+            # print("logsumexp (logsumexp score + s)")
+            # print(s_span.permute(2, 1, 0))
+            # print(s_span.permute(2, 1, 0).shape)
+            # # # logexp array
+            # print(torch.logsumexp(s_span.permute(2, 1, 0), 1))
+
+            s_sum = torch.logsumexp(s_span.permute(2, 1, 0), 1)
+            # PART 5
+            # print("final")
+            # print(s_sum.shape)
+            # print(s_sum.permute(1,0))
+            # print(s_sum.permute(1,0).shape)
+
+            s.diagonal(offset).copy_(s_sum)
+
+            # if d == 4:
+            #     break
+
+            ##### TODO
             # if d == 2:
-            #    DO something 
+            #    DO something
             # else:
             #    DO something
+
+            # brute force solution
+            # for i in range(0, seq_len - offset):
+            #     j = i + offset
+            #     exp_sum = torch.logsumexp(scores[i][j], 0)[0]
+            #     for k in range(i, j):
+
+        # print(s[0])
+
+        # sys.exit()
 
         return s
 
@@ -387,7 +518,7 @@ class MLP(nn.Module):
 
 
 class Model(nn.Module):
-    def __init__(self, n_words, n_labels, n_tags, n_embed=100, n_feat_embed=100, embed_dropout=.33, 
+    def __init__(self, n_words, n_labels, n_tags, n_embed=100, n_feat_embed=100, embed_dropout=.33,
                     n_lstm_hidden=400, n_lstm_layers=3, encoder_dropout=.33,
                     n_label_mlp=100, mlp_dropout=.33):
 
@@ -419,7 +550,7 @@ class Model(nn.Module):
         tag_embed = self.tag_embed(feats.pop())
         # concatenate the word and tag representations
         embed = torch.cat((word_embed, tag_embed), -1)
-        
+
         return self.embed_dropout(embed)
 
 
@@ -482,7 +613,7 @@ def train(model, traindata, devdata, optimizer):
         model.train()
 
         for i, (words, *feats, trees, charts) in enumerate(traindata.loader):
-            # mask out the lower left triangle     
+            # mask out the lower left triangle
             word_mask = words.ne(args.pad_index)[:, 1:]
             mask = word_mask if len(words.shape) < 3 else word_mask.any(-1)
             mask = (mask.unsqueeze(1) & mask.unsqueeze(2)).triu_(1)
@@ -493,9 +624,12 @@ def train(model, traindata, devdata, optimizer):
             nn.utils.clip_grad_norm_(model.parameters(), args.clip)
             optimizer.step()
             optimizer.zero_grad()
-            if i % 50 == 0:
+            if i % 20 == 0:
                 print(f"{i} iter of epoch {epoch}, loss: {loss:.4f}")
-        
+
+
+            # break
+
         loss, dev_metric = evaluate(model, devdata.loader)
         print(f"{'dev:':5} loss: {loss:.4f} - {dev_metric}")
 
@@ -508,6 +642,8 @@ def train(model, traindata, devdata, optimizer):
         print(f"{'dev:':5} {best_metric}")
         print(f"{elapsed}s elapsed, {elapsed / epoch}s/epoch")
 
+        # break
+
 @torch.no_grad()
 def evaluate(model, loader):
 
@@ -516,7 +652,7 @@ def evaluate(model, loader):
     total_loss, metric = 0, SpanMetric()
 
     for words, *feats, trees, charts in loader:
-        # mask out the lower left triangle     
+        # mask out the lower left triangle
         word_mask = words.ne(args.pad_index)[:, 1:]
         mask = word_mask if len(words.shape) < 3 else word_mask.any(-1)
         mask = (mask.unsqueeze(1) & mask.unsqueeze(2)).triu_(1)
@@ -614,7 +750,7 @@ if __name__ == "__main__":
     args.eos_index = WORD.eos_index
     print(args)
     print("Building the model")
-    model = Model(n_words=args.n_words, n_labels=args.n_labels, n_tags=args.n_tags, 
+    model = Model(n_words=args.n_words, n_labels=args.n_labels, n_tags=args.n_tags,
                     n_lstm_hidden=args.n_lstm_hidden, n_lstm_layers=args.n_lstm_layers).to(args.device)
     print(model)
 

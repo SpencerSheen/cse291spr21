@@ -299,7 +299,14 @@ class CRFConstituency(nn.Module):
             if d == seq_len:
                 s_label = torch.logsumexp(s_label,0)
             else:
-                s_label = torch.squeeze(torch.logsumexp(s_label,1))
+                # s_label = torch.logsumexp(s_label,1)
+                # if len(s_label.shape) > 1:
+                #     s_label = torch.squeeze(s_label)
+
+                try:
+                    s_label = torch.squeeze(torch.logsumexp(s_label,1))
+                except:
+                    s_label = s_label
 
             s_label = torch.unsqueeze(s_label, 0)
             # print("s_label")

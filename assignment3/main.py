@@ -734,15 +734,20 @@ def predict(model, loader):
         predictions.append(preds[0]._pformat_flat("", "()", False))
 
     # number of trees to be saved
-    print_tree_count = 5
+    print_small_tree_count = 5
+    print_large_tree_count = 5
     for i, tree in enumerate(ground_truth):
         tree = from_string(tree)
-        if tree.sen_len() <=10:
+        if tree.sen_len() <=10 and print_small_tree_count > 0:
             #save trees as png files
             draw_tree(tree, res_path =f"./ground_truth_{i}.png")
             draw_tree(from_string(predictions[i]), res_path=f"./pred_{i}.png")
-            print_tree_count-=1
-        if print_tree_count <=0:
+            print_small_tree_count-=1
+        elif tree.sen_len() >10 and print_large_tree_count > 0:
+            draw_tree(tree, res_path =f"./ground_truth_{i}.png")
+            draw_tree(from_string(predictions[i]), res_path=f"./pred_{i}.png")
+            print_large_tree_count-=1
+        if print_small_tree_count+print_large_tree_count <=0:
             break
 
 

@@ -10,7 +10,7 @@ from data import Dataset, Tree, Field, RawField, ChartField
 import argparse
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 import sys
-from node import Node, draw_tree
+from node import Node, draw_tree, from_string
 
 class Metric(object):
 
